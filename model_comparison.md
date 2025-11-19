@@ -1,9 +1,5 @@
 # Model Comparison: Boids vs Cucker-Smale
 
-## Quick Recommendation
-**Use `boids5_cucker_smale.py` for your coursework.** It's based on proper differential equations and research literature.
-
----
 
 ## Side-by-Side Comparison
 
