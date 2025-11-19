@@ -1,9 +1,5 @@
 # Model Comparison: Boids vs Cucker-Smale
 
-## Quick Recommendation
-**Use `boids5_cucker_smale.py` for your coursework.** It's based on proper differential equations and research literature.
-
----
 
 ## Side-by-Side Comparison
 
@@ -17,37 +13,11 @@
 | **Spacing Control** | Hard to tune | **Automatic (potential minimum)** |
 | **Flock Formation Time** | Slow (30+ seconds) | **Fast (5-10 seconds)** |
 | **Research Citations** | Reynolds (1987) only | **Cucker-Smale + modern research** |
-| **Coursework Suitability** | Good for graphics | **Excellent for math/physics courses** |
 
 ---
 
 ## Mathematical Formulations
 
-### **Previous Models (boids2/3/4)**
-
-```python
-# Heuristic rules (not differential equations)
-if distance < R_sep:
-    separation += force_away()
-    
-if distance < R_cohesion:
-    cohesion += steer_toward_center()
-    
-if distance < R_align:
-    alignment += match_velocity()
-
-# Update (not derived from equations)
-velocity += separation + cohesion + alignment
-position += velocity * dt
-```
-
-**Issues:**
-- Not true differential equations
-- Threshold-based (discontinuous)
-- Hard to relate to physics/biology
-- Trial-and-error parameter tuning
-
----
 
 ### **Cucker-Smale Model (boids5)**
 
@@ -124,19 +94,6 @@ Morse Potential Energy Curve:
 
 ---
 
-### **Issue 3: "Must use differential equations"**
-
-| Model | Differential Equations? | Suitable for Math Course? |
-|-------|------------------------|--------------------------|
-| boids4 | Partial (velocity update) | Somewhat |
-| **boids5** | **Full system (ODE + SDE)** | **Excellent** |
-
-**boids4 (previous):**
-```python
-# Not clear differential equations
-steering = w_sep*sep + w_ali*align + w_coh*coh
-velocities += steering * dt  # Where's the equation?
-```
 
 **boids5 (Cucker-Smale):**
 ```python
@@ -145,9 +102,6 @@ dv/dt = F_morse + F_align + F_speed + σ·dW  # Explicit SDE
 
 # Numerical integration: Euler-Maruyama
 v += (F_morse + F_align + F_speed)*dt + sigma*sqrt(dt)*dW
-```
-
-You can **write this in your report** as proper mathematics!
 
 ---
 
@@ -161,8 +115,6 @@ k_align = 1.2    # Why 1.2? Trial and error.
 k_coh = 25.0     # Why so high? Had to compensate for other issues.
 k_elastic = 0.4  # Arbitrary
 ```
-
-**Problem:** Hard to justify parameter choices in a report.
 
 ---
 
@@ -201,7 +153,7 @@ Primary citations:
 3. **Ha & Tadmor (2008)** - Mathematical analysis
 4. **Degond & Motsch (2008)** - Stochastic versions
 
-**Advantage:** Can cite 4+ recent research papers!
+**Advantage:** cites 4+ recent research papers!
 
 ---
 
@@ -236,27 +188,6 @@ Alignment: K=1.50, β=0.50
 Morse Potential + CS Alignment
 ```
 
----
-
-## Which Model for What Purpose?
-
-### **Use boids2/3/4 if:**
-- Computer graphics course
-- Just want cool visualization
-- Don't need mathematical rigor
-- Computational methods focus
-
-### **Use boids5 (Cucker-Smale) if:**
-- ✅ **Modeling & Simulation course**
-- ✅ **Need differential equations**
-- ✅ **Want research citations**
-- ✅ **Physics/math-based coursework**
-- ✅ **Need to explain parameters**
-- ✅ **Want fast flock formation**
-- ✅ **Need proper bird spacing**
-
----
-
 ## Performance Comparison
 
 | Metric | boids4 | boids5 |
@@ -272,8 +203,6 @@ Morse Potential + CS Alignment
 
 ## Final Recommendation
 
-**For your "Modelling and Simulation" coursework at UCL:**
-
 ### ✅ **Use `boids5_cucker_smale.py`**
 
 **Reasons:**
@@ -284,7 +213,6 @@ Morse Potential + CS Alignment
 5. **Mathematically rigorous** (suitable for university-level work)
 6. **Clear parameter meanings** (easy to explain in report)
 
-### 📝 **In Your Report, You Can Write:**
 
 > "This simulation implements the Cucker-Smale model (Cucker & Smale, 2007) extended with Morse attraction-repulsion potentials (Carrillo et al., 2010). The system is described by the following coupled stochastic differential equations:
 >
@@ -294,9 +222,6 @@ Morse Potential + CS Alignment
 >
 > where U(r) is the Morse potential and φ(r) = 1/(1+r²)^β is the Cucker-Smale communication weight. Numerical integration was performed using the Euler-Maruyama method for stochastic differential equations..."
 
-**That's the kind of rigorous description that gets good marks!** 🎓
-
----
 
 ## Summary Table
 
@@ -308,7 +233,6 @@ Morse Potential + CS Alignment
 | **Bird Spacing** | Too close | ✅ **Natural** |
 | **Speed Behavior** | Inconsistent | ✅ **Stable** |
 | **Parameter Explanation** | Hard | ✅ **Clear physics meaning** |
-| **Coursework Suitability** | OK | ✅ **Excellent** |
 
 **Winner:** `boids5_cucker_smale.py` 🏆
 
