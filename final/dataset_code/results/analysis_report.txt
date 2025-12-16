@@ -1,0 +1,105 @@
+
+================================================================================
+MODEL COMPARISON ANALYSIS REPORT (Time-Averaged)
+Generated: 2025-12-15 23:28:28
+================================================================================
+
+All metrics are TIME-AVERAGED for proper statistical comparison:
+- Real flock: 8652 frames over 157.5 seconds
+- Simulations: Last 50% of 400 timesteps, averaged over 3 runs
+
+================================================================================
+1. TIME-AVERAGED METRICS COMPARISON
+================================================================================
+
+                          Real Flock 6    Boids Model       Cucker-Smale
+                          ---------------    -----------       ------------
+Mean Speed (m/s)              7.01               5.39                7.03
+Speed Std (m/s)               1.54               0.61                1.16
+Polarization                 0.709              0.859               0.855
+Neighbor Distance (m)         9.00               8.14                8.83
+Dist to 75% of Flock (m)     19.10              35.26               23.37
+Number of Agents                47                 47                  47
+
+================================================================================
+2. ERROR ANALYSIS (% Difference from Real Data)
+================================================================================
+
+Metric                    Boids Error       Cucker-Smale Error
+                          -----------       ------------------
+Mean Speed                   -23.1%              +0.4%
+Speed Std                    -60.5%             -24.5%
+Polarization                 +21.1%             +20.6%
+Neighbor Distance             -9.5%              -1.9%
+
+Average Absolute Error:       28.5%              11.8%
+
+BEST MODEL: CUCKER-SMALE (lower average error)
+
+================================================================================
+3. MODEL PARAMETERS
+================================================================================
+
+BOIDS MODEL:
+  Dynamics:
+    - Target speed v0 = 8.0
+    - Drag coefficient = 0.002
+    - Topological neighbors k = 7
+    - Weights: separation=15.0, alignment=6.0, cohesion=4.0
+  
+  Stochasticity (MATCHED):
+    - Sigma (Euler-Maruyama) = 0.15
+    - Sensor noise = 1.0
+    - Neighbor dropout = 0.15
+    - Wind strength = 0.5
+
+CUCKER-SMALE MODEL:
+  Dynamics:
+    - Target speed v0 = 7.0
+    - Communication strength K = 0.8
+    - Decay rate beta = 0.6
+    - Morse potential: C_a=5.0, C_r=7.0, l_r=7.0
+  
+  Stochasticity (MATCHED):
+    - Sigma (Euler-Maruyama) = 0.15
+    - Sensor noise = 1.0
+    - Interaction dropout = 0.15
+    - Wind strength = 0.5
+
+================================================================================
+4. KEY INSIGHTS & DISCUSSION POINTS
+================================================================================
+
+BOIDS MODEL ANALYSIS:
+  [-] Speed differs by -23.1% from real data
+  [-] Polarization too high (+21.1%)
+  [+] Neighbor distance well-matched to real data
+
+CUCKER-SMALE MODEL ANALYSIS:
+  [+] Speed well-matched to real data
+  [-] Polarization too high (+20.6%)
+  [+] Neighbor distance well-matched to real data
+
+OVERALL COMPARISON:
+  - Both models use MATCHED stochasticity (sigma=0.15, noise=1.0, dropout=0.15)
+  - Simulations run without obstacles/targets for fair comparison
+  - Real flock shows natural variation: polarization fluctuates over time
+  - Real mean neighbor distance (9.0m) reflects actual spacing
+
+================================================================================
+5. TEMPORAL VARIABILITY (Coefficient of Variation)
+================================================================================
+
+                          Real Data         Boids             Cucker-Smale
+Speed CV:                   18.7%             15.2%              22.2%
+Polarization CV:            28.3%             10.1%              25.0%
+Neighbor Dist CV:           58.5%             10.1%              18.7%
+
+Interpretation:
+  - Real data shows 28% polarization CV -> flock has natural alignment fluctuations
+  - Higher CV = more dynamic/natural behavior
+  - Lower CV = more rigid/artificial behavior
+
+================================================================================
+END OF REPORT
+================================================================================

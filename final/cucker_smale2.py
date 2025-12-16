@@ -133,7 +133,7 @@ class CuckerSmaleSwarm:
         
         # NEW: Target point parameters
         self.target_point = None
-        self.target_attraction_strength = 30.0  # How strongly boids are attracted to target (increased)
+        self.target_attraction_strength = 10.0  # How strongly boids are attracted to target (increased)
         self.target_reach_threshold = 20.0     # Distance to consider "reached"
         self.target_required_fraction = 0.5    # Fraction of boids needed to reach target
         
@@ -146,25 +146,29 @@ class CuckerSmaleSwarm:
         speeds = np.linalg.norm(self.v, axis=1, keepdims=True)
         self.v = self.v / speeds * 15.0  # Normalize to cruise speed
         
-        # ============ MODEL PARAMETERS (TUNED FOR VISIBLE FLOCKING) ============
+        # ============ MODEL PARAMETERS (TUNED TO TIME-AVERAGED REAL DATA) ============
+        # Target: Speed=7.01, Polar=0.709, NeighDist=9.0m, Speed CV=18.7%
         
         # Attraction-Repulsion Potential Parameters (Morse-like)
-        self.C_a = 6.0     # Attraction strength (stronger pull together)
-        self.l_a = 25.0    # Attraction range (long-range for global attraction)
-        self.C_r = 7.0     # Repulsion strength
-        self.l_r = 6.5     # Repulsion range
+        # Previous: C_a=8, l_r=5 gave 3.35m (too small)
+        # Previous: C_a=4, l_r=9 gave 16.4m (too large)
+        # Middle ground for ~9.0m
+        self.C_a = 5.0     # Moderate attraction
+        self.l_a = 25.0    # Long attraction range
+        self.C_r = 7.0     # Moderate repulsion
+        self.l_r = 7.0     # Middle ground repulsion range
         
         # Cucker-Smale Alignment Parameters
-        self.K = 3.5       # Alignment strength
-        self.beta = 0.3    # Communication weight decay
+        self.K = 0.8       # LOW alignment for ~0.71 polarization
+        self.beta = 0.6    # FASTER decay = weaker long-range alignment
         
         # Speed regulation
-        self.v0 = 15.0     # Desired cruise speed
-        self.alpha_speed = 0.5  # Speed regulation strength 
+        self.v0 = 7.0      # Desired cruise speed (matched to real data: 7.01 m/s)
+        self.alpha_speed = 0.15  # LOW regulation = more natural speed variation (CV~19%)
         
-        # Speed limits
-        self.min_speed = 10.0
-        self.max_speed = 22.0
+        # Speed limits (wider range for realistic CV)
+        self.min_speed = 4.0   # Allow slower speeds
+        self.max_speed = 11.0  # Allow variation
         
         # Boundary parameters
         self.boundary_limit = 50
@@ -269,11 +273,11 @@ class CuckerSmaleSwarm:
             Speed regulation forces with stochastic variations
         """
         # Compute stochastic speed variations using shared function
-        stochastic_variation = compute_stochastic_speed_variations(self.N, variation_amplitude=0.3)
+        stochastic_variation = compute_stochastic_speed_variations(self.N, variation_amplitude=2.0)
         
         # Compute turn penalty using shared function
         if hasattr(self, 'v_prev'):
-            turn_penalty = compute_turn_penalty(self.v, self.v_prev, max_penalty=2.5)
+            turn_penalty = compute_turn_penalty(self.v, self.v_prev, max_penalty=3.5)
         else:
             turn_penalty = 0
             self.v_prev = self.v.copy()
@@ -424,161 +428,165 @@ class CuckerSmaleSwarm:
         self.x += self.v * self.dt
 
 
-# ==================== SIMULATION SETUP ====================
-dt = 0.08
-sim_time = 60
-N = 50
+# ==================== MAIN BLOCK ====================
+# Only run visualization when executing this file directly
+# (not when importing CuckerSmaleSwarm class for comparison scripts)
+if __name__ == '__main__':
+    # ==================== SIMULATION SETUP ====================
+    dt = 0.08
+    sim_time = 60
+    N = 50
 
-# Create obstacles (choose a preset or use create_obstacles for random)
-# Options: 'center_column', 'wall', 'scattered', 'tunnel', 'ring'
-OBSTACLE_PRESET = 'scattered'  # Change this to try different obstacle configurations
-obstacles = create_predefined_obstacles(OBSTACLE_PRESET)
+    # Create obstacles (choose a preset or use create_obstacles for random)
+    # Options: 'center_column', 'wall', 'scattered', 'tunnel', 'ring'
+    OBSTACLE_PRESET = 'scattered'  # Change this to try different obstacle configurations
+    obstacles = create_predefined_obstacles(OBSTACLE_PRESET)
 
-swarm = CuckerSmaleSwarm(num_boids=N, dt=dt, sigma=0.08,
-                         sensor_noise=0.5,       # NEW: Perception uncertainty
-                         interaction_dropout=0.1,  # NEW: 10% chance to miss neighbor interaction
-                         wind_strength=0.3,      # NEW: OU process wind strength
-                         obstacles=obstacles,    # NEW: Obstacles in environment
-                         obstacle_avoidance_strength=150.0)  # NEW: Strong avoidance force to prevent collisions
+    swarm = CuckerSmaleSwarm(num_boids=N, dt=dt, sigma=0.08,
+                             sensor_noise=0.5,       # NEW: Perception uncertainty
+                             interaction_dropout=0.1,  # NEW: 10% chance to miss neighbor interaction
+                             wind_strength=0.3,      # NEW: OU process wind strength
+                             obstacles=obstacles,    # NEW: Obstacles in environment
+                             obstacle_avoidance_strength=150.0)  # NEW: Strong avoidance force to prevent collisions
 
-# Track positions for analysis
-positions_history = []
+    # Track positions for analysis
+    positions_history = []
 
-# ==================== VISUALIZATION ====================
-fig = plt.figure(figsize=(12, 10))
-ax = fig.add_subplot(projection="3d")
-ax.set_title("Cucker-Smale Model with Attraction-Repulsion", 
-             fontsize=14, fontweight='bold')
-ax.grid(False)
-ax.set_xticks([])
-ax.set_yticks([])
-ax.set_zticks([])
+    # ==================== VISUALIZATION ====================
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(projection="3d")
+    ax.set_title("Cucker-Smale Model with Attraction-Repulsion", 
+                 fontsize=14, fontweight='bold')
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
 
-# Info text
-info_text = ax.text2D(0.02, 0.98,
-                     f"Cucker-Smale Model (Enhanced Stochasticity)\n"
-                     f"Birds: {N} | Spacing: ~7-9 units\n"
-                     f"Base Speed: {swarm.v0:.1f} ± stochastic variation\n"
-                     f"Speed Range: {swarm.min_speed:.1f}-{swarm.max_speed:.1f} units\n"
-                     f"Stochasticity: 6 layers (Wiener + Speed Var + Turn + OU Wind + Sensor + Dropout)\n"
-                     f"Perception: Sensor Noise + 10% Interaction Dropout\n"
-                     f"Color: Blue (slow) → Yellow (fast)",
-                     transform=ax.transAxes,
-                     fontsize=8.5,
-                     verticalalignment='top',
-                     bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
+    # Info text
+    info_text = ax.text2D(0.02, 0.98,
+                         f"Cucker-Smale Model (Enhanced Stochasticity)\n"
+                         f"Birds: {N} | Spacing: ~7-9 units\n"
+                         f"Base Speed: {swarm.v0:.1f} ± stochastic variation\n"
+                         f"Speed Range: {swarm.min_speed:.1f}-{swarm.max_speed:.1f} units\n"
+                         f"Stochasticity: 6 layers (Wiener + Speed Var + Turn + OU Wind + Sensor + Dropout)\n"
+                         f"Perception: Sensor Noise + 10% Interaction Dropout\n"
+                         f"Color: Blue (slow) → Yellow (fast)",
+                         transform=ax.transAxes,
+                         fontsize=8.5,
+                         verticalalignment='top',
+                         bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
 
-timer_text = ax.text2D(0.98, 0.98, "",
-                      transform=ax.transAxes,
-                      fontsize=12,
-                      horizontalalignment='right',
-                      verticalalignment='top')
+    timer_text = ax.text2D(0.98, 0.98, "",
+                          transform=ax.transAxes,
+                          fontsize=12,
+                          horizontalalignment='right',
+                          verticalalignment='top')
 
-# Scatter plot
-scat = ax.scatter(swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2],
-                 c='darkblue', s=30, alpha=0.8, edgecolors='navy')
+    # Scatter plot
+    scat = ax.scatter(swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2],
+                     c='darkblue', s=30, alpha=0.8, edgecolors='navy')
 
-# Draw all obstacles using shared function
-draw_all_obstacles(ax, swarm.obstacles, num_points=120, color='crimson', alpha=0.5)
+    # Draw all obstacles using shared function
+    draw_all_obstacles(ax, swarm.obstacles, num_points=120, color='crimson', alpha=0.5)
 
-# Initialize target point
-swarm.target_point = spawn_target_point(
-    boundary_limit=50, margin=15, 
-    obstacles=swarm.obstacles, min_obstacle_distance=10.0
-)
-target_scatter = [draw_target_point(ax, swarm.target_point, size=300, color='lime', marker='*')]
-
-# Optional velocity arrows (disabled for performance - set to True if needed)
-SHOW_ARROWS = False
-if SHOW_ARROWS:
-    quiver_list = [ax.quiver(swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2],
-                             swarm.v[:, 0], swarm.v[:, 1], swarm.v[:, 2],
-                             length=2.0, normalize=True,
-                             color='red', alpha=0.5, arrow_length_ratio=0.3)]
-else:
-    quiver_list = [None]
-
-
-def update(frame):
-    """Animation update function"""
-    global target_scatter
-    
-    # Check if target is reached and respawn if needed
-    if swarm.target_point is not None:
-        reached, fraction = check_target_reached(
-            swarm.x, swarm.target_point,
-            reach_threshold=swarm.target_reach_threshold,
-            required_fraction=swarm.target_required_fraction
-        )
-        if reached:
-            # Remove old target marker
-            target_scatter[0].remove()
-            # Spawn new target
-            swarm.target_point = spawn_target_point(
-                boundary_limit=50, margin=15,
-                obstacles=swarm.obstacles, min_obstacle_distance=10.0
-            )
-            # Draw new target
-            target_scatter[0] = draw_target_point(ax, swarm.target_point, size=300, color='lime', marker='*')
-    
-    # Step the simulation
-    swarm.step()
-    
-    # Update scatter plot
-    scat._offsets3d = (swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2])
-    
-    # Check for obstacle collisions and flash boids red if inside obstacles
-    collision_mask, _, _ = check_obstacle_collisions(
-        swarm.x, swarm.obstacles, collision_radius=1.0
+    # Initialize target point
+    swarm.target_point = spawn_target_point(
+        boundary_limit=50, margin=15, 
+        obstacles=swarm.obstacles, min_obstacle_distance=10.0
     )
-    
-    # Color by speed (visual feedback)
-    speeds = np.linalg.norm(swarm.v, axis=1)
-    colors = plt.cm.viridis((speeds - swarm.min_speed) / (swarm.max_speed - swarm.min_speed))
-    
-    # Flash boids red if they're inside obstacles (flashing effect every 3 frames)
-    if np.any(collision_mask):
-        flash_on = (frame // 3) % 2 == 0  # Flash every 3 frames
-        red_color = np.array([1.0, 0.0, 0.0, 1.0]) if flash_on else np.array([1.0, 0.3, 0.3, 1.0])
-        # Convert colors to array if needed
-        if not isinstance(colors, np.ndarray):
-            colors = np.array(colors)
-        colors[collision_mask] = red_color  # Bright red or dim red
-    
-    scat.set_color(colors)
-    
-    # Update arrows if enabled
+    target_scatter = [draw_target_point(ax, swarm.target_point, size=300, color='lime', marker='*')]
+
+    # Optional velocity arrows (disabled for performance - set to True if needed)
+    SHOW_ARROWS = False
     if SHOW_ARROWS:
-        global quiver_list
-        if quiver_list[0] is not None:
-            quiver_list[0].remove()
-        quiver_list[0] = ax.quiver(swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2],
-                                   swarm.v[:, 0], swarm.v[:, 1], swarm.v[:, 2],
-                                   length=2.0, normalize=True,
-                                   color='red', alpha=0.5, arrow_length_ratio=0.3)
-    
-    # Fixed boundaries
-    ax.set_xlim(-50, 50)
-    ax.set_ylim(-50, 50)
-    ax.set_zlim(-50, 50)
-    
-    # Update timer
-    curr_time = frame * dt
-    timer_text.set_text(f"t = {curr_time:.2f}s")
-    
-    if SHOW_ARROWS:
-        return scat, quiver_list[0], timer_text, info_text
+        quiver_list = [ax.quiver(swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2],
+                                 swarm.v[:, 0], swarm.v[:, 1], swarm.v[:, 2],
+                                 length=2.0, normalize=True,
+                                 color='red', alpha=0.5, arrow_length_ratio=0.3)]
     else:
-        return scat, timer_text, info_text
+        quiver_list = [None]
 
 
-# Create animation (optimized for performance)
-anim = FuncAnimation(fig, update,
-                    frames=int(sim_time / dt),
-                    interval=30,  # 33fps
-                    blit=False,
-                    repeat=True)
+    def update(frame):
+        """Animation update function"""
+        global target_scatter
+        
+        # Check if target is reached and respawn if needed
+        if swarm.target_point is not None:
+            reached, fraction = check_target_reached(
+                swarm.x, swarm.target_point,
+                reach_threshold=swarm.target_reach_threshold,
+                required_fraction=swarm.target_required_fraction
+            )
+            if reached:
+                # Remove old target marker
+                target_scatter[0].remove()
+                # Spawn new target
+                swarm.target_point = spawn_target_point(
+                    boundary_limit=50, margin=15,
+                    obstacles=swarm.obstacles, min_obstacle_distance=10.0
+                )
+                # Draw new target
+                target_scatter[0] = draw_target_point(ax, swarm.target_point, size=300, color='lime', marker='*')
+        
+        # Step the simulation
+        swarm.step()
+        
+        # Update scatter plot
+        scat._offsets3d = (swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2])
+        
+        # Check for obstacle collisions and flash boids red if inside obstacles
+        collision_mask, _, _ = check_obstacle_collisions(
+            swarm.x, swarm.obstacles, collision_radius=1.0
+        )
+        
+        # Color by speed (visual feedback)
+        speeds = np.linalg.norm(swarm.v, axis=1)
+        colors = plt.cm.viridis((speeds - swarm.min_speed) / (swarm.max_speed - swarm.min_speed))
+        
+        # Flash boids red if they're inside obstacles (flashing effect every 3 frames)
+        if np.any(collision_mask):
+            flash_on = (frame // 3) % 2 == 0  # Flash every 3 frames
+            red_color = np.array([1.0, 0.0, 0.0, 1.0]) if flash_on else np.array([1.0, 0.3, 0.3, 1.0])
+            # Convert colors to array if needed
+            if not isinstance(colors, np.ndarray):
+                colors = np.array(colors)
+            colors[collision_mask] = red_color  # Bright red or dim red
+        
+        scat.set_color(colors)
+        
+        # Update arrows if enabled
+        if SHOW_ARROWS:
+            global quiver_list
+            if quiver_list[0] is not None:
+                quiver_list[0].remove()
+            quiver_list[0] = ax.quiver(swarm.x[:, 0], swarm.x[:, 1], swarm.x[:, 2],
+                                       swarm.v[:, 0], swarm.v[:, 1], swarm.v[:, 2],
+                                       length=2.0, normalize=True,
+                                       color='red', alpha=0.5, arrow_length_ratio=0.3)
+        
+        # Fixed boundaries
+        ax.set_xlim(-50, 50)
+        ax.set_ylim(-50, 50)
+        ax.set_zlim(-50, 50)
+        
+        # Update timer
+        curr_time = frame * dt
+        timer_text.set_text(f"t = {curr_time:.2f}s")
+        
+        if SHOW_ARROWS:
+            return scat, quiver_list[0], timer_text, info_text
+        else:
+            return scat, timer_text, info_text
 
-plt.tight_layout()
-plt.show()
+
+    # Create animation (optimized for performance)
+    anim = FuncAnimation(fig, update,
+                        frames=int(sim_time / dt),
+                        interval=30,  # 33fps
+                        blit=False,
+                        repeat=True)
+
+    plt.tight_layout()
+    plt.show()
 
