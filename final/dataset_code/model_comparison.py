@@ -1,19 +1,4 @@
-"""
-Model Comparison Script
-=======================
-Compares Boids and Cucker-Smale models with real bird data (Mobbing Flocks 6 and 7).
-Generates key metrics, charts, and graphs for your report.
-
-Usage:
-    python model_comparison.py
-
-Outputs:
-    - plots/comparison_metrics.png     : Bar charts of key metrics
-    - plots/comparison_3d.png          : 3D flock visualizations
-    - plots/comparison_distributions.png : Distribution analysis
-    - results/comparison_summary.csv   : Summary table
-    - results/analysis_report.txt      : Detailed analysis with parameter suggestions
-"""
+"""Model Comparison - Boids and Cucker-Smale vs Real Bird Data"""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -26,22 +11,17 @@ import warnings
 from datetime import datetime
 warnings.filterwarnings('ignore')
 
-# Create output directories
 SCRIPT_DIR = Path(__file__).parent
-PLOTS_DIR = SCRIPT_DIR / 'plots'
+PLOTS_DIR = SCRIPT_DIR / 'plots' / 'model_comparison'
 RESULTS_DIR = SCRIPT_DIR / 'results'
-PLOTS_DIR.mkdir(exist_ok=True)
+PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(exist_ok=True)
 
-# Add parent directory to path for model imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from boids4 import BoidSwarm
 from cucker_smale2 import CuckerSmaleSwarm
+from shared_functions import check_bird_collisions
 
-
-# ============================================================================
-# DATA LOADING (Simplified from load_bird_data.py)
-# ============================================================================
 
 def get_data_path():
     """Get path to the data directory."""
@@ -82,34 +62,15 @@ def get_flock_at_time(data, time):
     return data['positions'][mask], data['velocities'][mask]
 
 
-# ============================================================================
-# METRICS COMPUTATION
-# ============================================================================
-
 def compute_metrics(positions, velocities):
-    """
-    Compute key flocking metrics.
-    
-    Returns:
-    --------
-    metrics : dict
-        - mean_speed: Average speed (m/s)
-        - std_speed: Speed standard deviation
-        - polarization: Order parameter (0-1)
-        - mean_neighbor_dist: Mean distance to 7 nearest neighbors
-        - dist_to_75pct: Mean distance to reach 75% of flock members
-        - density: Birds per cubic meter
-    """
-    # Speed statistics
+    """Compute key flocking metrics: speed, polarization, neighbor distances, density."""
     speeds = np.linalg.norm(velocities, axis=1)
     mean_speed = np.mean(speeds)
     std_speed = np.std(speeds)
     
-    # Polarization (alignment order parameter)
     v_normalized = velocities / (speeds[:, np.newaxis] + 1e-8)
     polarization = np.linalg.norm(np.mean(v_normalized, axis=0))
     
-    # Neighbor distances (7-nearest neighbors)
     if len(positions) > 1:
         dist_matrix = squareform(pdist(positions))
         k = min(7, len(positions) - 1)
@@ -119,13 +80,11 @@ def compute_metrics(positions, velocities):
             neighbor_dists.extend(sorted_dists)
         mean_neighbor_dist = np.mean(neighbor_dists)
         
-        # Distance to reach 75% of flock
-        # For each bird, find distance needed to include 75% of other birds
         n_birds = len(positions)
-        n_75pct = int(np.ceil(0.75 * (n_birds - 1)))  # 75% of other birds
+        n_75pct = int(np.ceil(0.75 * (n_birds - 1)))
         dist_to_75pct_list = []
         for i in range(n_birds):
-            sorted_dists = np.sort(dist_matrix[i])[1:]  # Exclude self
+            sorted_dists = np.sort(dist_matrix[i])[1:]
             if len(sorted_dists) >= n_75pct:
                 dist_to_75pct_list.append(sorted_dists[n_75pct - 1])
         dist_to_75pct = np.mean(dist_to_75pct_list) if dist_to_75pct_list else 0
@@ -133,7 +92,6 @@ def compute_metrics(positions, velocities):
         mean_neighbor_dist = 0
         dist_to_75pct = 0
     
-    # Density (birds per volume)
     center = np.mean(positions, axis=0)
     distances_from_center = np.linalg.norm(positions - center, axis=1)
     radius = np.percentile(distances_from_center, 95)
@@ -151,103 +109,64 @@ def compute_metrics(positions, velocities):
     }
 
 
-# ============================================================================
-# SIMULATION RUNNERS
-# ============================================================================
-
-def run_boids_simulation(num_boids=50, num_steps=400, dt=0.08):
-    """
-    Run Boids simulation and return final state metrics.
-    
-    NOTE: Runs WITHOUT obstacles or targets for fair comparison with real data.
-    Uses INCREASED noise parameters for realistic variability (matching real CV).
-    
-    Returns: positions_history, velocities_history, swarm (for parameter extraction)
-    """
-    # Explicitly set empty obstacles and no target for fair comparison
+def run_boids_simulation(num_boids=50, num_steps=2000, dt=0.08):
+    """Run Boids simulation without obstacles for fair comparison with real data."""
     empty_obstacles = {'centers': np.empty((0, 3)), 'radii': np.empty(0), 'type': 'spheres'}
     
-    # Noise parameters tuned for realistic variability
-    # Real flock has: Speed CV=18.7%, Polar CV=28.3%, NeighDist CV=58.5%
     swarm = BoidSwarm(
         num_boids=num_boids, ts=dt, sigma=0.15, k_neighbors=7,
         sensor_noise=1.0, neighbor_dropout=0.15, wind_strength=0.5,
-        obstacles=empty_obstacles,  # No obstacles for fair test
-        obstacle_avoidance_strength=0.0  # Disable obstacle avoidance
+        obstacles=empty_obstacles, obstacle_avoidance_strength=0.0
     )
-    # Ensure no target point is set
     swarm.target_point = None
     
     positions_history = []
     velocities_history = []
+    collision_history = []
     
     for _ in range(num_steps):
         swarm.boids_algorithm()
         positions_history.append(swarm.positions.copy())
         velocities_history.append(swarm.velocities.copy())
+        num_cols, _, _ = check_bird_collisions(swarm.positions, collision_radius=0.5)
+        collision_history.append(num_cols)
     
-    return positions_history, velocities_history, swarm
+    return positions_history, velocities_history, swarm, collision_history
 
 
-def run_cucker_smale_simulation(num_boids=50, num_steps=400, dt=0.08):
-    """
-    Run Cucker-Smale simulation and return final state metrics.
-    
-    NOTE: Runs WITHOUT obstacles or targets for fair comparison with real data.
-    Uses INCREASED noise parameters for realistic variability (matching real CV).
-    
-    Returns: positions_history, velocities_history, swarm (for parameter extraction)
-    """
-    # Explicitly set empty obstacles and no target for fair comparison
+def run_cucker_smale_simulation(num_boids=50, num_steps=2000, dt=0.08):
+    """Run Cucker-Smale simulation without obstacles for fair comparison with real data."""
     empty_obstacles = {'centers': np.empty((0, 3)), 'radii': np.empty(0), 'type': 'spheres'}
     
-    # Noise parameters tuned for realistic variability
-    # Real flock has: Speed CV=18.7%, Polar CV=28.3%, NeighDist CV=58.5%
     swarm = CuckerSmaleSwarm(
         num_boids=num_boids, dt=dt, sigma=0.15,
         sensor_noise=1.0, interaction_dropout=0.15, wind_strength=0.5,
-        obstacles=empty_obstacles,  # No obstacles for fair test
-        obstacle_avoidance_strength=0.0  # Disable obstacle avoidance
+        obstacles=empty_obstacles, obstacle_avoidance_strength=0.0
     )
-    # Ensure no target point is set
     swarm.target_point = None
     
     positions_history = []
     velocities_history = []
+    collision_history = []
     
     for _ in range(num_steps):
         swarm.step()
         positions_history.append(swarm.x.copy())
         velocities_history.append(swarm.v.copy())
+        num_cols, _, _ = check_bird_collisions(swarm.x, collision_radius=0.5)
+        collision_history.append(num_cols)
     
-    return positions_history, velocities_history, swarm
+    return positions_history, velocities_history, swarm, collision_history
 
-
-# ============================================================================
-# COMPARISON AND VISUALIZATION
-# ============================================================================
 
 def compare_all(flock_number=6):
-    """
-    Run full comparison between models and real data for a single flock.
-    
-    Uses TIME-AVERAGED metrics for real data (not a single snapshot) for
-    proper comparison with simulation averages.
-    
-    Parameters:
-    -----------
-    flock_number : int
-        Which mobbing flock to compare against (default: 6)
-    """
+    """Run full comparison between models and real data using time-averaged metrics."""
     print("="*70)
     print(f"MODEL COMPARISON: Boids & Cucker-Smale vs Real Flock {flock_number}")
     print("="*70)
     
     results = {}
     
-    # =========================================================================
-    # LOAD REAL DATA AND COMPUTE TIME-AVERAGED METRICS
-    # =========================================================================
     print(f"\nLoading Mobbing Flock {flock_number} (computing time-averaged metrics)...")
     data = load_flock(flock_number)
     
@@ -261,25 +180,25 @@ def compare_all(flock_number=6):
         if len(pos) >= 3:
             real_metrics_list.append(compute_metrics(pos, vel))
     
-    # Time-average all metrics
     real_metrics = {
         key: np.mean([m[key] for m in real_metrics_list])
         for key in real_metrics_list[0].keys()
     }
-    # Also store std for each metric
+    num_agents_list = [m['num_agents'] for m in real_metrics_list]
+    real_metrics['num_agents'] = np.median(num_agents_list)
+    
     real_metrics_std = {
         key: np.std([m[key] for m in real_metrics_list])
         for key in real_metrics_list[0].keys()
     }
     
-    # Get a representative snapshot for 3D visualization (middle time)
     mid_time = (data['time_range'][0] + data['time_range'][1]) / 2
     positions, velocities = get_flock_at_time(data, mid_time)
     
     results['real_flock'] = {
         'metrics': real_metrics,
         'metrics_std': real_metrics_std,
-        'positions': positions,  # For visualization only
+        'positions': positions,
         'velocities': velocities,
         'num_birds': data['num_birds'],
         'flock_number': flock_number,
@@ -294,61 +213,72 @@ def compare_all(flock_number=6):
     num_boids = int(real_metrics['num_agents'])
     print(f"\nRunning simulations with {num_boids} agents (matching real flock)...")
     
-    # Boids simulation (average of 3 runs)
     print("  Running Boids model (3 runs)...")
     boids_metrics_list = []
     boids_final_pos = None
     boids_final_vel = None
     boids_swarm = None
+    boids_collision_history = []
     for run in range(3):
-        pos_hist, vel_hist, swarm = run_boids_simulation(num_boids=num_boids)
-        # Use last 50% for steady state
+        pos_hist, vel_hist, swarm, col_hist = run_boids_simulation(num_boids=num_boids)
         start_idx = len(pos_hist) // 2
         for i in range(start_idx, len(pos_hist)):
             boids_metrics_list.append(compute_metrics(pos_hist[i], vel_hist[i]))
         boids_final_pos = pos_hist[-1]
         boids_final_vel = vel_hist[-1]
-        boids_swarm = swarm  # Keep last swarm for parameter extraction
+        boids_swarm = swarm
+        boids_collision_history = col_hist
     
     # Average metrics
     boids_metrics = {
         key: np.mean([m[key] for m in boids_metrics_list])
         for key in boids_metrics_list[0].keys()
     }
+    boids_metrics['total_bird_collisions'] = sum(boids_collision_history)
+    boids_metrics['mean_collisions_per_step'] = np.mean(boids_collision_history)
+    
     results['boids'] = {
         'metrics': boids_metrics,
         'positions': boids_final_pos,
         'velocities': boids_final_vel,
-        'swarm': boids_swarm  # Store swarm for parameter access
+        'swarm': boids_swarm,
+        'collision_history': boids_collision_history
     }
     print(f"    ✓ Mean speed: {boids_metrics['mean_speed']:.2f} m/s, Polarization: {boids_metrics['polarization']:.3f}")
+    print(f"    ✓ Bird-bird collisions: {boids_metrics['total_bird_collisions']:.0f} total")
     
-    # Cucker-Smale simulation (average of 3 runs)
     print("  Running Cucker-Smale model (3 runs)...")
     cs_metrics_list = []
     cs_final_pos = None
     cs_final_vel = None
     cs_swarm = None
+    cs_collision_history = []
     for run in range(3):
-        pos_hist, vel_hist, swarm = run_cucker_smale_simulation(num_boids=num_boids)
+        pos_hist, vel_hist, swarm, col_hist = run_cucker_smale_simulation(num_boids=num_boids)
         start_idx = len(pos_hist) // 2
         for i in range(start_idx, len(pos_hist)):
             cs_metrics_list.append(compute_metrics(pos_hist[i], vel_hist[i]))
         cs_final_pos = pos_hist[-1]
         cs_final_vel = vel_hist[-1]
-        cs_swarm = swarm  # Keep last swarm for parameter extraction
+        cs_swarm = swarm
+        cs_collision_history = col_hist
     
     cs_metrics = {
         key: np.mean([m[key] for m in cs_metrics_list])
         for key in cs_metrics_list[0].keys()
     }
+    cs_metrics['total_bird_collisions'] = sum(cs_collision_history)
+    cs_metrics['mean_collisions_per_step'] = np.mean(cs_collision_history)
+    
     results['cucker_smale'] = {
         'metrics': cs_metrics,
         'positions': cs_final_pos,
         'velocities': cs_final_vel,
-        'swarm': cs_swarm  # Store swarm for parameter access
+        'swarm': cs_swarm,
+        'collision_history': cs_collision_history
     }
     print(f"    ✓ Mean speed: {cs_metrics['mean_speed']:.2f} m/s, Polarization: {cs_metrics['polarization']:.3f}")
+    print(f"    ✓ Bird-bird collisions: {cs_metrics['total_bird_collisions']:.0f} total")
     
     return results
 
@@ -422,8 +352,6 @@ def plot_comparison_bar_charts(results):
     print("\nGenerating individual metric bar charts...")
     
     flock_num = results['real_flock']['flock_number']
-    
-    # Prepare data
     labels = [f'Real Flock {flock_num}', 'Boids', 'Cucker-Smale']
     keys = ['real_flock', 'boids', 'cucker_smale']
     colors = ['#2E86AB', '#28A745', '#DC3545']
@@ -435,7 +363,6 @@ def plot_comparison_bar_charts(results):
         ('std_speed', 'Speed Variability (Std Dev)', 'speed_std')
     ]
     
-    # Create individual plots for each metric
     for metric, title, filename in metrics_to_plot:
         fig, ax = plt.subplots(figsize=(8, 6))
         values = [results[k]['metrics'][metric] for k in keys]
@@ -445,7 +372,6 @@ def plot_comparison_bar_charts(results):
         ax.set_title(f'{title}\nComparison with Real Bird Data (Flock {flock_num})', fontsize=12, fontweight='bold')
         ax.grid(axis='y', alpha=0.3)
         
-        # Add value labels on bars
         for bar, val in zip(bars, values):
             height = bar.get_height()
             ax.text(bar.get_x() + bar.get_width()/2., height,
@@ -457,7 +383,6 @@ def plot_comparison_bar_charts(results):
         print(f"  ✓ Saved: {PLOTS_DIR / f'{filename}_comparison.png'}")
         plt.close()
     
-    # Also create a combined 2x2 overview
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
     fig.suptitle(f'Model Comparison Overview\n(Mobbing Flock {flock_num})', 
                  fontsize=14, fontweight='bold')
@@ -499,7 +424,6 @@ def plot_3d_comparison(results):
         ('cucker_smale', 'Cucker-Smale Model', '#DC3545', 'cucker_smale_3d')
     ]
     
-    # Individual 3D plots
     for key, title, color, filename in plots:
         fig = plt.figure(figsize=(10, 8))
         ax = fig.add_subplot(111, projection='3d')
@@ -511,7 +435,6 @@ def plot_3d_comparison(results):
         sc = ax.scatter(pos[:, 0], pos[:, 1], pos[:, 2],
                        c=speeds, cmap='viridis', s=50, alpha=0.7)
         
-        # Add velocity arrows (subsampled)
         step = max(1, len(pos) // 20)
         scale = 0.4
         ax.quiver(pos[::step, 0], pos[::step, 1], pos[::step, 2],
@@ -531,7 +454,6 @@ def plot_3d_comparison(results):
         print(f"  ✓ Saved: {PLOTS_DIR / f'{filename}.png'}")
         plt.close()
     
-    # Combined 3D comparison
     fig = plt.figure(figsize=(18, 6))
     fig.suptitle('3D Flock Structure Comparison', fontsize=14, fontweight='bold')
     
@@ -572,7 +494,6 @@ def plot_metric_distributions(results):
     flock_num = results['real_flock']['flock_number']
     real_m = results['real_flock']['metrics']
     
-    # 1. Speed Distribution Comparison
     fig, ax = plt.subplots(figsize=(10, 6))
     for key, label, color in [('real_flock', f'Real Flock {flock_num}', '#2E86AB'),
                                ('boids', 'Boids Model', '#28A745'),
@@ -590,7 +511,6 @@ def plot_metric_distributions(results):
     print(f"  ✓ Saved: {PLOTS_DIR / 'speed_distribution.png'}")
     plt.close()
     
-    # 2. Neighbor Distance Distribution
     fig, ax = plt.subplots(figsize=(10, 6))
     for key, label, color in [('real_flock', f'Real Flock {flock_num}', '#2E86AB'),
                                ('boids', 'Boids Model', '#28A745'),
@@ -613,7 +533,6 @@ def plot_metric_distributions(results):
     print(f"  ✓ Saved: {PLOTS_DIR / 'neighbor_distance_distribution.png'}")
     plt.close()
     
-    # 3. Model Error Comparison Bar Chart
     fig, ax = plt.subplots(figsize=(10, 6))
     metrics_for_error = ['mean_speed', 'std_speed', 'polarization', 'mean_neighbor_dist']
     metric_labels = ['Mean Speed', 'Speed Std', 'Polarization', 'Neighbor Dist']
@@ -636,7 +555,6 @@ def plot_metric_distributions(results):
     ax.legend(fontsize=11)
     ax.grid(axis='y', alpha=0.3)
     
-    # Add value labels
     for bar, val in zip(bars1, boids_errors):
         ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.5,
                f'{val:.1f}%', ha='center', fontsize=10, fontweight='bold')
@@ -649,11 +567,9 @@ def plot_metric_distributions(results):
     print(f"  ✓ Saved: {PLOTS_DIR / 'error_comparison.png'}")
     plt.close()
     
-    # 4. Radar/Spider Chart for Model Comparison
     fig, ax = plt.subplots(figsize=(8, 8), subplot_kw=dict(polar=True))
     
     categories = ['Speed Match', 'Speed Var Match', 'Polarization', 'Spacing Match']
-    # Convert errors to "match scores" (100 - error, capped at 0-100)
     boids_scores = [max(0, 100 - e) for e in boids_errors]
     cs_scores = [max(0, 100 - e) for e in cs_errors]
     
@@ -678,7 +594,6 @@ def plot_metric_distributions(results):
     print(f"  ✓ Saved: {PLOTS_DIR / 'performance_radar.png'}")
     plt.close()
     
-    # 5. Summary Statistics Table as Image
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.axis('off')
     
@@ -704,12 +619,10 @@ def plot_metric_distributions(results):
     table.set_fontsize(11)
     table.scale(1.2, 2.0)
     
-    # Style header row
     for i in range(6):
         table[(0, i)].set_facecolor('#4472C4')
         table[(0, i)].set_text_props(color='white', fontweight='bold')
     
-    # Style last row (averages)
     for i in range(6):
         table[(5, i)].set_facecolor('#E2EFDA')
         table[(5, i)].set_text_props(fontweight='bold')
@@ -721,7 +634,6 @@ def plot_metric_distributions(results):
     print(f"  ✓ Saved: {PLOTS_DIR / 'summary_table.png'}")
     plt.close()
     
-    # 6. Velocity Direction Alignment Visualization (2D projection)
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
     fig.suptitle('Velocity Direction Alignment (Top-Down View)', fontsize=14, fontweight='bold')
     
@@ -732,7 +644,6 @@ def plot_metric_distributions(results):
         pos = results[key]['positions']
         vel = results[key]['velocities']
         
-        # Normalize velocities for direction arrows
         speeds = np.linalg.norm(vel, axis=1, keepdims=True)
         vel_norm = vel / (speeds + 1e-8)
         
@@ -755,20 +666,81 @@ def plot_metric_distributions(results):
     return fig
 
 
-def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
-    """
-    Run simulations and plot time series of key metrics to show convergence.
-    Now includes time-varying metrics from real flock data for fair comparison.
-    """
+def plot_collision_comparison(results, dt=0.08):
+    """Plot bird-bird collision comparison between models."""
+    print("\nGenerating collision comparison plots...")
+    
+    if 'collision_history' not in results.get('boids', {}):
+        print("  ⚠ No collision data available - skipping collision plots")
+        return None
+    
+    boids_cols = results['boids']['collision_history']
+    cs_cols = results['cucker_smale']['collision_history']
+    
+    times = np.arange(len(boids_cols)) * dt
+    
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig.suptitle('Bird-Bird Collision Analysis', fontsize=14, fontweight='bold')
+    
+    ax = axes[0]
+    ax.plot(times, np.cumsum(boids_cols), 'g-', label='Boids', linewidth=2)
+    ax.plot(times, np.cumsum(cs_cols), 'r-', label='Cucker-Smale', linewidth=2)
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Cumulative Collisions')
+    ax.set_title('Cumulative Bird-Bird Collisions')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    ax = axes[1]
+    window = 50
+    boids_rolling = np.convolve(boids_cols, np.ones(window)/window, mode='valid')
+    cs_rolling = np.convolve(cs_cols, np.ones(window)/window, mode='valid')
+    times_rolling = times[:len(boids_rolling)]
+    
+    ax.plot(times_rolling, boids_rolling, 'g-', label='Boids', linewidth=2)
+    ax.plot(times_rolling, cs_rolling, 'r-', label='Cucker-Smale', linewidth=2)
+    ax.set_xlabel('Time (s)')
+    ax.set_ylabel('Collisions per Step (rolling avg)')
+    ax.set_title(f'Collision Rate (window={window} steps)')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.savefig(PLOTS_DIR / 'collision_comparison.png', dpi=300, bbox_inches='tight')
+    print(f"  ✓ Saved: {PLOTS_DIR / 'collision_comparison.png'}")
+    plt.close()
+    
+    fig, ax = plt.subplots(figsize=(8, 6))
+    
+    boids_total = results['boids']['metrics']['total_bird_collisions']
+    cs_total = results['cucker_smale']['metrics']['total_bird_collisions']
+    
+    bars = ax.bar(['Boids', 'Cucker-Smale'], [boids_total, cs_total], 
+                  color=['#28A745', '#DC3545'], edgecolor='black', linewidth=1.5)
+    
+    ax.set_ylabel('Total Bird-Bird Collisions', fontsize=12)
+    ax.set_title('Total Collisions During Simulation\n(lower = better collision avoidance)', 
+                 fontsize=14, fontweight='bold')
+    ax.grid(axis='y', alpha=0.3)
+    
+    for bar, val in zip(bars, [boids_total, cs_total]):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + max(boids_total, cs_total)*0.02,
+                f'{val:.0f}', ha='center', va='bottom', fontsize=14, fontweight='bold')
+    
+    plt.tight_layout()
+    plt.savefig(PLOTS_DIR / 'collision_totals.png', dpi=300, bbox_inches='tight')
+    print(f"  ✓ Saved: {PLOTS_DIR / 'collision_totals.png'}")
+    plt.close()
+    
+    return fig
+
+
+def plot_time_series(num_boids=97, num_steps=2000, dt=0.08, flock_number=6):
+    """Run simulations and plot time series of key metrics with real flock comparison."""
     print("\nGenerating time series convergence plots...")
     
-    # =========================================================================
-    # LOAD REAL FLOCK DATA AND COMPUTE TIME-VARYING METRICS
-    # =========================================================================
     print("  Loading real flock data for time-varying metrics...")
     real_data = load_flock(flock_number)
-    
-    # Get unique time points from real data
     unique_times = np.sort(np.unique(real_data['times']))
     
     real_speeds = []
@@ -795,12 +767,8 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     print(f"  Real polarization range: {real_polarizations.min():.3f} - {real_polarizations.max():.3f}")
     print(f"  Real neighbor dist range: {real_neighbor_dists.min():.2f} - {real_neighbor_dists.max():.2f} m")
     
-    # =========================================================================
-    # RUN SIMULATIONS (with increased noise for realistic variability)
-    # =========================================================================
     empty_obstacles = {'centers': np.empty((0, 3)), 'radii': np.empty(0), 'type': 'spheres'}
     
-    # Boids (noise tuned for realistic CV)
     boids_swarm = BoidSwarm(
         num_boids=num_boids, ts=dt, sigma=0.15, k_neighbors=7,
         sensor_noise=1.0, neighbor_dropout=0.15, wind_strength=0.5,
@@ -819,7 +787,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
         boids_polarizations.append(metrics['polarization'])
         boids_neighbor_dists.append(metrics['mean_neighbor_dist'])
     
-    # Cucker-Smale (noise tuned for realistic CV)
     cs_swarm = CuckerSmaleSwarm(
         num_boids=num_boids, dt=dt, sigma=0.15,
         sensor_noise=1.0, interaction_dropout=0.15, wind_strength=0.5,
@@ -840,15 +807,11 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     
     sim_time = np.arange(num_steps) * dt
     
-    # =========================================================================
-    # PLOT 1: SPEED TIME SERIES
-    # =========================================================================
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(real_times_normalized, real_speeds, label='Real Flock Data', color='#2E86AB', linewidth=2.5, alpha=0.9)
     ax.plot(sim_time, boids_speeds, label='Boids Model', color='#28A745', linewidth=2, alpha=0.8)
     ax.plot(sim_time, cs_speeds, label='Cucker-Smale Model', color='#DC3545', linewidth=2, alpha=0.8)
     
-    # Add shaded region for real data range
     ax.axhline(y=np.mean(real_speeds), color='#2E86AB', linestyle='--', linewidth=1, alpha=0.5)
     ax.fill_between([0, max(sim_time[-1], real_times_normalized[-1])], 
                     np.mean(real_speeds) - np.std(real_speeds),
@@ -865,9 +828,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     print(f"  ✓ Saved: {PLOTS_DIR / 'speed_convergence.png'}")
     plt.close()
     
-    # =========================================================================
-    # PLOT 2: POLARIZATION TIME SERIES
-    # =========================================================================
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(real_times_normalized, real_polarizations, label='Real Flock Data', color='#2E86AB', linewidth=2.5, alpha=0.9)
     ax.plot(sim_time, boids_polarizations, label='Boids Model', color='#28A745', linewidth=2, alpha=0.8)
@@ -890,9 +850,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     print(f"  ✓ Saved: {PLOTS_DIR / 'polarization_convergence.png'}")
     plt.close()
     
-    # =========================================================================
-    # PLOT 3: NEIGHBOR DISTANCE TIME SERIES
-    # =========================================================================
     fig, ax = plt.subplots(figsize=(12, 6))
     ax.plot(real_times_normalized, real_neighbor_dists, label='Real Flock Data', color='#2E86AB', linewidth=2.5, alpha=0.9)
     ax.plot(sim_time, boids_neighbor_dists, label='Boids Model', color='#28A745', linewidth=2, alpha=0.8)
@@ -914,13 +871,9 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     print(f"  ✓ Saved: {PLOTS_DIR / 'neighbor_distance_convergence.png'}")
     plt.close()
     
-    # =========================================================================
-    # PLOT 4: COMBINED OVERVIEW
-    # =========================================================================
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     fig.suptitle('Time-Varying Metrics: Real Data vs Simulations', fontsize=14, fontweight='bold')
     
-    # Speed
     axes[0].plot(real_times_normalized, real_speeds, label='Real', color='#2E86AB', linewidth=2)
     axes[0].plot(sim_time, boids_speeds, label='Boids', color='#28A745', linewidth=1.5, alpha=0.8)
     axes[0].plot(sim_time, cs_speeds, label='C-S', color='#DC3545', linewidth=1.5, alpha=0.8)
@@ -930,7 +883,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     axes[0].legend(fontsize=9)
     axes[0].grid(True, alpha=0.3)
     
-    # Polarization
     axes[1].plot(real_times_normalized, real_polarizations, label='Real', color='#2E86AB', linewidth=2)
     axes[1].plot(sim_time, boids_polarizations, label='Boids', color='#28A745', linewidth=1.5, alpha=0.8)
     axes[1].plot(sim_time, cs_polarizations, label='C-S', color='#DC3545', linewidth=1.5, alpha=0.8)
@@ -941,7 +893,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     axes[1].grid(True, alpha=0.3)
     axes[1].set_ylim(0, 1.05)
     
-    # Neighbor Distance
     axes[2].plot(real_times_normalized, real_neighbor_dists, label='Real', color='#2E86AB', linewidth=2)
     axes[2].plot(sim_time, boids_neighbor_dists, label='Boids', color='#28A745', linewidth=1.5, alpha=0.8)
     axes[2].plot(sim_time, cs_neighbor_dists, label='C-S', color='#DC3545', linewidth=1.5, alpha=0.8)
@@ -956,17 +907,11 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     print(f"  ✓ Saved: {PLOTS_DIR / 'convergence_overview.png'}")
     plt.close()
     
-    # =========================================================================
-    # PLOT 5: VARIABILITY COMPARISON (NEW)
-    # =========================================================================
     fig, ax = plt.subplots(figsize=(10, 6))
-    
-    # Calculate coefficient of variation (CV) for each metric and source
     metrics_names = ['Speed', 'Polarization', 'Neighbor Dist']
     x_pos = np.arange(len(metrics_names))
     width = 0.25
     
-    # CV = std/mean * 100 (as percentage)
     real_cv = [
         np.std(real_speeds) / np.mean(real_speeds) * 100,
         np.std(real_polarizations) / np.mean(real_polarizations) * 100,
@@ -987,7 +932,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     bars2 = ax.bar(x_pos, boids_cv, width, label='Boids Model', color='#28A745', alpha=0.8)
     bars3 = ax.bar(x_pos + width, cs_cv, width, label='Cucker-Smale', color='#DC3545', alpha=0.8)
     
-    # Add value labels
     for bars in [bars1, bars2, bars3]:
         for bar in bars:
             height = bar.get_height()
@@ -1009,7 +953,6 @@ def plot_time_series(num_boids=97, num_steps=400, dt=0.08, flock_number=6):
     print(f"  ✓ Saved: {PLOTS_DIR / 'variability_comparison.png'}")
     plt.close()
     
-    # Return summary statistics for the report
     return {
         'real': {
             'speed_mean': np.mean(real_speeds), 'speed_std': np.std(real_speeds),
@@ -1064,21 +1007,16 @@ def save_summary_csv(results):
 
 
 def generate_analysis_report(results, time_series_stats=None):
-    """
-    Generate a focused analysis report based on time-averaged metrics.
-    All comparisons use time-averaged data for proper statistical comparison.
-    """
+    """Generate analysis report with time-averaged metrics comparison."""
     print("\nGenerating analysis report...")
     
     flock_num = results['real_flock']['flock_number']
     num_frames = results['real_flock'].get('num_frames', 1)
     duration = results['real_flock'].get('duration', 0)
     
-    # Extract swarm objects for dynamic parameter access
     boids_swarm = results['boids'].get('swarm')
     cs_swarm = results['cucker_smale'].get('swarm')
     
-    # Boids parameters
     bp = {
         'v0': getattr(boids_swarm, 'v0', 7.5) if boids_swarm else 7.5,
         'drag': getattr(boids_swarm, 'drag_coefficient', 0.005) if boids_swarm else 0.005,
@@ -1092,9 +1030,9 @@ def generate_analysis_report(results, time_series_stats=None):
         'neighbor_dropout': getattr(boids_swarm, 'neighbor_dropout', 0.15) if boids_swarm else 0.15,
     }
     
-    # Cucker-Smale parameters
     csp = {
         'v0': getattr(cs_swarm, 'v0', 7.0) if cs_swarm else 7.0,
+        'drag': getattr(cs_swarm, 'drag_coefficient', 0.005) if cs_swarm else 0.005,
         'K': getattr(cs_swarm, 'K', 1.5) if cs_swarm else 1.5,
         'beta': getattr(cs_swarm, 'beta', 0.5) if cs_swarm else 0.5,
         'C_a': getattr(cs_swarm, 'C_a', 8.0) if cs_swarm else 8.0,
@@ -1106,13 +1044,11 @@ def generate_analysis_report(results, time_series_stats=None):
         'interaction_dropout': getattr(cs_swarm, 'interaction_dropout', 0.15) if cs_swarm else 0.15,
     }
     
-    # Get time-averaged metrics
     real_m = results['real_flock']['metrics']
     real_std = results['real_flock'].get('metrics_std', {})
     boids_m = results['boids']['metrics']
     cs_m = results['cucker_smale']['metrics']
     
-    # Calculate errors vs time-averaged real data
     boids_errors = {
         'speed': (boids_m['mean_speed'] - real_m['mean_speed']) / real_m['mean_speed'] * 100,
         'speed_std': (boids_m['std_speed'] - real_m['std_speed']) / real_m['std_speed'] * 100,
@@ -1130,7 +1066,6 @@ def generate_analysis_report(results, time_series_stats=None):
     boids_avg_error = np.mean([abs(e) for e in boids_errors.values()])
     cs_avg_error = np.mean([abs(e) for e in cs_errors.values()])
     
-    # Generate clean, focused report
     report = f"""
 ================================================================================
 MODEL COMPARISON ANALYSIS REPORT (Time-Averaged)
@@ -1139,7 +1074,7 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 All metrics are TIME-AVERAGED for proper statistical comparison:
 - Real flock: {num_frames} frames over {duration:.1f} seconds
-- Simulations: Last 50% of 400 timesteps, averaged over 3 runs
+- Simulations: Last 50% of 2000 timesteps (~160s), averaged over 3 runs
 
 ================================================================================
 1. TIME-AVERAGED METRICS COMPARISON
@@ -1189,6 +1124,7 @@ BOIDS MODEL:
 CUCKER-SMALE MODEL:
   Dynamics:
     - Target speed v0 = {csp['v0']}
+    - Drag coefficient = {csp.get('drag', 0.005)}
     - Communication strength K = {csp['K']}
     - Decay rate beta = {csp['beta']}
     - Morse potential: C_a={csp['C_a']}, C_r={csp['C_r']}, l_r={csp['l_r']}
@@ -1249,8 +1185,10 @@ CUCKER-SMALE MODEL ANALYSIS:
     report += f"""
 OVERALL COMPARISON:
   - Both models use MATCHED stochasticity (sigma={bp['sigma']}, noise={bp['sensor_noise']}, dropout={bp['neighbor_dropout']})
+  - Both models use MATCHED aerodynamics (drag=0.005, stall prevention at v<4.5)
+  - Both models use IDENTICAL speed limits (4.0-11.0 m/s) and speed regulation
   - Simulations run without obstacles/targets for fair comparison
-  - Real flock shows natural variation: polarization fluctuates over time
+  - Real flock bird count varies per frame (tracking); median count used for simulations
   - Real mean neighbor distance ({real_m['mean_neighbor_dist']:.1f}m) reflects actual spacing
 
 ================================================================================
@@ -1280,14 +1218,12 @@ END OF REPORT
 ================================================================================
 """
     
-    # Save report
     report_path = RESULTS_DIR / 'analysis_report.txt'
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(report)
     
     print(f"  ✓ Saved: {report_path}")
     
-    # Print quick summary
     print("\n" + "="*60)
     print("QUICK SUMMARY (Time-Averaged Comparison)")
     print("="*60)
@@ -1298,10 +1234,6 @@ END OF REPORT
     
     return report
 
-
-# ============================================================================
-# MAIN
-# ============================================================================
 
 def main(flock_number=6):
     """Run the full comparison pipeline."""
@@ -1329,6 +1261,9 @@ def main(flock_number=6):
     
     # Distributions and analysis charts
     plot_metric_distributions(results)
+    
+    # Collision comparison plots
+    plot_collision_comparison(results)
     
     # Time series convergence plots (now with real data time-varying metrics!)
     num_agents = results['real_flock']['metrics']['num_agents']
@@ -1363,24 +1298,24 @@ def main(flock_number=6):
     print("COMPARISON COMPLETE!")
     print("="*70)
     print("\nGenerated files in plots/:")
-    print("  📊 Individual metric charts:")
+    print("  Individual metric charts:")
     print("      mean_speed_comparison.png, polarization_comparison.png")
     print("      neighbor_distance_comparison.png, speed_std_comparison.png")
-    print("  📈 Distribution plots:")
+    print("  Distribution plots:")
     print("      speed_distribution.png, neighbor_distance_distribution.png")
-    print("  📉 Error analysis:")
+    print("  Error analysis:")
     print("      error_comparison.png, performance_radar.png")
-    print("  🎯 3D visualizations:")
+    print("  3D visualizations:")
     print("      real_flock_3d.png, boids_3d.png, cucker_smale_3d.png")
-    print("  ⏱️ Time series (with real data time-varying!):")
+    print("  Time series (with real data time-varying!):")
     print("      speed_convergence.png, polarization_convergence.png")
     print("      neighbor_distance_convergence.png, convergence_overview.png")
     print("      variability_comparison.png (NEW: compares temporal stability)")
-    print("  📋 Summary:")
+    print("  Summary:")
     print("      summary_table.png, velocity_alignment.png, metrics_overview.png")
     print("\nGenerated files in results/:")
-    print(f"  📄 comparison_summary.csv")
-    print(f"  📝 analysis_report.txt (now with time-varying stats!)")
+    print(f"  comparison_summary.csv")
+    print(f"  analysis_report.txt (now with time-varying stats!)")
 
 
 if __name__ == '__main__':

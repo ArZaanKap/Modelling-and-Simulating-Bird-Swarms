@@ -1,13 +1,4 @@
-"""
-Animate Real Flock Data
------------------------
-Interactive 3D animation of real bird flock data from mobbing events.
-Shows position and velocity of each bird over time.
-
-Usage:
-    python visualize_real_flock.py           # Default: Flock 6
-    python visualize_real_flock.py 7         # Specify flock number
-"""
+"""Interactive 3D animation of real bird flock data from mobbing events."""
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -78,52 +69,34 @@ def compute_metrics(positions, velocities):
 
 
 def animate_flock(flock_number=6, speed=1.0, skip_frames=1):
-    """
-    Create an interactive 3D animation of the real flock data.
-    
-    Parameters:
-    -----------
-    flock_number : int
-        Which mobbing flock to visualize (1-10)
-    speed : float
-        Animation speed multiplier (1.0 = real-time, 2.0 = 2x speed)
-    skip_frames : int
-        Skip every N frames (use for very long recordings)
-    """
-    # Load data
+    """Create an interactive 3D animation of the real flock data."""
     data = load_flock(flock_number)
-    frames = data['frames'][::skip_frames]  # Subsample if needed
+    frames = data['frames'][::skip_frames]
     
     print(f"\nFlock {flock_number} loaded:")
     print(f"  Duration: {data['duration']:.2f} seconds")
     print(f"  Frames: {data['num_frames']} (showing {len(frames)} after skip)")
     print(f"  Birds per frame: {len(frames[0]['positions'])}")
     
-    # Calculate bounds for consistent axes
     all_positions = np.vstack([f['positions'] for f in frames])
     x_min, y_min, z_min = all_positions.min(axis=0) - 5
     x_max, y_max, z_max = all_positions.max(axis=0) + 5
     
-    # Create figure
     fig = plt.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection='3d')
     
-    # Initialize scatter plot
     scatter = ax.scatter([], [], [], c='blue', s=30, alpha=0.8)
-    quiver = None  # Will hold velocity arrows
+    quiver = None
     
-    # Title and labels
     title = ax.set_title(f'Real Flock {flock_number} - Frame 0', fontsize=14, fontweight='bold')
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')
     ax.set_zlabel('Z (m)')
     
-    # Set consistent axis limits
     ax.set_xlim(x_min, x_max)
     ax.set_ylim(y_min, y_max)
     ax.set_zlim(z_min, z_max)
     
-    # Make axes equal aspect ratio
     max_range = max(x_max - x_min, y_max - y_min, z_max - z_min) / 2
     mid_x = (x_max + x_min) / 2
     mid_y = (y_max + y_min) / 2
@@ -132,7 +105,6 @@ def animate_flock(flock_number=6, speed=1.0, skip_frames=1):
     ax.set_ylim(mid_y - max_range, mid_y + max_range)
     ax.set_zlim(mid_z - max_range, mid_z + max_range)
     
-    # Info text
     info_text = fig.text(0.02, 0.95, '', fontsize=10, family='monospace',
                          verticalalignment='top', transform=fig.transFigure,
                          bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
@@ -149,28 +121,22 @@ def animate_flock(flock_number=6, speed=1.0, skip_frames=1):
         pos = frame['positions']
         vel = frame['velocities']
         
-        # Update scatter positions
         scatter._offsets3d = (pos[:, 0], pos[:, 1], pos[:, 2])
         
-        # Color by speed
         speeds = np.linalg.norm(vel, axis=1)
         colors = plt.cm.viridis((speeds - speeds.min()) / (speeds.max() - speeds.min() + 1e-8))
         scatter.set_facecolors(colors)
         
-        # Remove old quiver and draw new velocity arrows
         if quiver is not None:
             quiver.remove()
         
-        # Normalize velocities for display (scale to reasonable arrow length)
         vel_norm = vel / (np.linalg.norm(vel, axis=1, keepdims=True) + 1e-8) * 2
         quiver = ax.quiver(pos[:, 0], pos[:, 1], pos[:, 2],
                           vel_norm[:, 0], vel_norm[:, 1], vel_norm[:, 2],
                           color='red', alpha=0.5, arrow_length_ratio=0.3, linewidth=0.5)
         
-        # Compute metrics
         metrics = compute_metrics(pos, vel)
         
-        # Update title and info
         time = frame['time'] - frames[0]['time']
         title.set_text(f'Real Flock {flock_number} - Time: {time:.2f}s (Frame {frame_idx+1}/{len(frames)})')
         
@@ -183,16 +149,13 @@ def animate_flock(flock_number=6, speed=1.0, skip_frames=1):
         
         return scatter, quiver
     
-    # Calculate interval (milliseconds between frames)
-    # Original data has ~55 fps, so interval ~18ms at real-time
     dt = (data['unique_times'][skip_frames] - data['unique_times'][0]) if len(data['unique_times']) > skip_frames else 0.018
-    interval = int(dt * 1000 / speed)  # Convert to ms, adjust by speed
-    interval = max(10, interval)  # Minimum 10ms for smooth playback
+    interval = int(dt * 1000 / speed)
+    interval = max(10, interval)
     
     print(f"\nAnimation interval: {interval}ms (speed: {speed}x)")
     print("Controls: Close window to stop")
     
-    # Create animation
     anim = FuncAnimation(fig, update, init_func=init,
                         frames=len(frames), interval=interval, blit=False)
     
@@ -203,20 +166,10 @@ def animate_flock(flock_number=6, speed=1.0, skip_frames=1):
 
 
 def plot_trajectory(flock_number=6, bird_id=None):
-    """
-    Plot 3D trajectory of the flock centroid or a specific bird over time.
-    
-    Parameters:
-    -----------
-    flock_number : int
-        Which mobbing flock to visualize
-    bird_id : int or None
-        If specified, plot trajectory of that specific bird
-    """
+    """Plot 3D trajectory of the flock centroid or a specific bird over time."""
     data = load_flock(flock_number)
     frames = data['frames']
     
-    # Extract trajectories
     times = []
     centroids = []
     bird_trajectory = []
@@ -232,10 +185,8 @@ def plot_trajectory(flock_number=6, bird_id=None):
     times = np.array(times)
     centroids = np.array(centroids)
     
-    # Create figure
     fig = plt.figure(figsize=(14, 6))
     
-    # 3D trajectory plot
     ax1 = fig.add_subplot(121, projection='3d')
     ax1.plot(centroids[:, 0], centroids[:, 1], centroids[:, 2], 
              'b-', linewidth=1.5, alpha=0.7, label='Flock centroid')
@@ -253,7 +204,6 @@ def plot_trajectory(flock_number=6, bird_id=None):
     ax1.set_title(f'Flock {flock_number} Trajectory ({data["duration"]:.1f}s)')
     ax1.legend()
     
-    # Time series of position components
     ax2 = fig.add_subplot(122)
     ax2.plot(times, centroids[:, 0], 'r-', label='X', alpha=0.7)
     ax2.plot(times, centroids[:, 1], 'g-', label='Y', alpha=0.7)
